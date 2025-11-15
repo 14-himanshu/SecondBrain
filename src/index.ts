@@ -1,31 +1,137 @@
 import express from "express";
 import mongoose from "mongoose";
 import jwt from "jsonwebtoken";
+import bcrypt from "bcrypt";
+import { z } from "zod";
+import { ContentModel, UserModel } from "./db.js";
+import { JWT_PASSWORD } from "./config.js";
+import { userMiddleware } from "./middleware.js";
 
 const app = express();
+app.use(express.json());
+
+const signupSchema = z.object({
+  username: z
+    .string()
+    .min(3, "Username must be at least 3 characters")
+    .max(20, "Username cannot exceed 20 characters")
+    .regex(
+      /^[a-zA-Z0-9_]+$/,
+      "Username can contain only letters, numbers and underscores"
+    ),
+
+  password: z
+    .string()
+    .min(8, "Password must contain at least 8 characters")
+    .max(30, "Password cannot exceed 30 characters")
+    .regex(/[A-Z]/, "Password must contain at least one uppercase letter")
+    .regex(/[a-z]/, "Password must contain at least one lowercase letter")
+    .regex(/[0-9]/, "Password must contain at least one number")
+    .regex(
+      /[^A-Za-z0-9]/,
+      "Password must contain at least one special character"
+    ),
+});
 
 
-app.post("/api/v1/signup",(req,res)=>{
-    
-})
-app.post("/api/v1/signin",(req,res)=>{
-
-})
-app.post("/api/v1/content",(req,res)=>{
-
-})
-app.get("/api/v1/content",(req,res)=>{
-
-})
-app.delete("/api/v1/content",(req,res)=>{
-
-})
-app.post("/api/v1/brain/share",(req,res)=>{
-
-})
-
-app.get("/api/v1/brain/:shareLink",(req,res)=>{
-    
-})
+const signinSchema = z.object({
+  username: z.string().min(3, "Username is required"),
+  password: z.string().min(1, "Password is required"),
+});
 
 
+const contentSchema = z.object({
+  link: z.string().url("Invalid URL"),
+  type: z.enum(["article", "video", "tweet", "website"]),
+  tags: z.array(z.string()).optional(),
+});
+
+app.post("/api/v1/signup", async (req, res) => {
+  const parsed = signupSchema.safeParse(req.body);
+
+  if (!parsed.success) {
+    return res.status(400).json({ errors: parsed.error.issues });
+  }
+
+  const { username, password } = parsed.data;
+
+  const hashedPassword = await bcrypt.hash(password, 10);
+
+  try {
+    await UserModel.create({ username, password: hashedPassword });
+    res.json({ message: "User signed up" });
+  } catch (e) {
+    return res.status(411).json({ message: "User already exists" });
+  }
+});
+
+app.post("/api/v1/signin", async (req, res) => {
+  const parsed = signinSchema.safeParse(req.body);
+
+  if (!parsed.success) {
+    return res.status(400).json({ errors: parsed.error.issues });
+  }
+
+  const { username, password } = parsed.data;
+
+  const existingUser = await UserModel.findOne({ username });
+
+  if (!existingUser) {
+    return res.status(403).json({ message: "Invalid credentials" });
+  }
+// @ts-ignore
+  const passwordMatch = await bcrypt.compare(password, existingUser.password);
+
+  if (!passwordMatch) {
+    return res.status(403).json({ message: "Invalid credentials" });
+  }
+
+  const token = jwt.sign({ id: existingUser._id }, JWT_PASSWORD);
+
+  res.json({ token });
+});
+
+
+
+app.post("/api/v1/content", userMiddleware, async (req, res) => {
+  const parsed = contentSchema.safeParse(req.body);
+
+  if (!parsed.success) {
+    return res.status(400).json({ errors: parsed.error.issues });
+  }
+
+  const { link, type, tags } = parsed.data;
+
+  await ContentModel.create({
+    link,
+    type,
+    tags: tags || [],
+    // @ts-ignore
+
+    userId: req.userId,
+  });
+
+  res.json({ message: "Content added" });
+});
+
+app.get("/api/v1/content", userMiddleware, async (req, res) => {
+  // @ts-ignore
+
+  const userId = req.userId;
+
+  const content = await ContentModel.find({ userId }).populate(
+    "userId",
+    "username"
+  );
+
+  res.json({ content });
+});
+
+
+
+app.delete("/api/v1/content", (req, res) => {});
+app.post("/api/v1/brain/share", (req, res) => {});
+
+app.get("/api/v1/brain/:shareLink", (req, res) => {});
+
+app.listen(3000);
