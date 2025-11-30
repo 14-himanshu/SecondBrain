@@ -3,9 +3,18 @@ import mongoose from "mongoose";
 import jwt from "jsonwebtoken";
 import bcrypt from "bcrypt";
 import { z } from "zod";
-import { ContentModel, UserModel } from "./db.js";
+import { ContentModel, LinkModel, UserModel } from "./db.js";
 import { JWT_PASSWORD } from "./config.js";
 import { userMiddleware } from "./middleware.js";
+import { random } from "./utils.js";
+
+declare global {
+  namespace Express {
+    interface Request {
+      userId?: string;
+    }
+  }
+}
 
 const app = express();
 app.use(express.json());
@@ -33,12 +42,10 @@ const signupSchema = z.object({
     ),
 });
 
-
 const signinSchema = z.object({
   username: z.string().min(3, "Username is required"),
   password: z.string().min(1, "Password is required"),
 });
-
 
 const contentSchema = z.object({
   link: z.string().url("Invalid URL"),
@@ -79,7 +86,7 @@ app.post("/api/v1/signin", async (req, res) => {
   if (!existingUser) {
     return res.status(403).json({ message: "Invalid credentials" });
   }
-// @ts-ignore
+  // @ts-ignore
   const passwordMatch = await bcrypt.compare(password, existingUser.password);
 
   if (!passwordMatch) {
@@ -90,8 +97,6 @@ app.post("/api/v1/signin", async (req, res) => {
 
   res.json({ token });
 });
-
-
 
 app.post("/api/v1/content", userMiddleware, async (req, res) => {
   const parsed = contentSchema.safeParse(req.body);
@@ -127,10 +132,35 @@ app.get("/api/v1/content", userMiddleware, async (req, res) => {
   res.json({ content });
 });
 
+app.delete("/api/v1/content", userMiddleware, async (req, res) => {
+  const contentId = req.body.contentId;
 
+  await ContentModel.deleteMany({
+    contentId,
+    userId: req.userId,
+  });
 
-app.delete("/api/v1/content", (req, res) => {});
-app.post("/api/v1/brain/share", (req, res) => {});
+  res.json({
+    message: "Deleted",
+  });
+});
+app.post("/api/v1/brain/share", userMiddleware,(req, res) => {
+  const share = req.body.share
+  if (share){
+    LinkModel.create({
+      userId : req.userId,
+      hash : random(10)
+
+    })
+  }else{
+    LinkModel.deleteOne({
+      userId : req.userId
+    })
+  }
+  res.json({
+    "message" : "Updated sharable link"
+  })
+});
 
 app.get("/api/v1/brain/:shareLink", (req, res) => {});
 
