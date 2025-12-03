@@ -7,6 +7,7 @@ import { ContentModel, LinkModel, UserModel } from "./db.js";
 import { JWT_PASSWORD } from "./config.js";
 import { userMiddleware } from "./middleware.js";
 import { random } from "./utils.js";
+import cors from "cors"
 
 declare global {
   namespace Express {
@@ -18,6 +19,7 @@ declare global {
 
 const app = express();
 app.use(express.json());
+app.use(cors());
 
 const signupSchema = z.object({
   username: z
@@ -48,8 +50,9 @@ const signinSchema = z.object({
 });
 
 const contentSchema = z.object({
+  title: z.string().min(1, "Title is required"),
   link: z.string().url("Invalid URL"),
-  type: z.enum(["article", "video", "tweet", "website"]),
+  type: z.enum(["Youtube", "Twitter"]),
   tags: z.array(z.string()).optional(),
 });
 
@@ -105,14 +108,14 @@ app.post("/api/v1/content", userMiddleware, async (req, res) => {
     return res.status(400).json({ errors: parsed.error.issues });
   }
 
-  const { link, type, tags } = parsed.data;
+  
+  const { title, link, type, tags } = parsed.data;
 
   await ContentModel.create({
+    title, 
     link,
     type,
     tags: tags || [],
-    // @ts-ignore
-
     userId: req.userId,
   });
 
